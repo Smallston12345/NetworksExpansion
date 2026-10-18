@@ -14,6 +14,7 @@ import com.balugaq.netex.utils.RootWriteLock;
 import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
 import com.ytdd9527.networksexpansion.implementation.machines.cellnet.drive.CellDrive;
 import com.ytdd9527.networksexpansion.implementation.machines.cellnet.drive.DriveCache;
+import com.ytdd9527.networksexpansion.implementation.machines.cellnet.drive.DriveStorage;
 import com.ytdd9527.networksexpansion.implementation.machines.cellnet.support.ItemHashMap;
 import com.ytdd9527.networksexpansion.implementation.machines.cellnet.support.ItemKey;
 import com.ytdd9527.networksexpansion.implementation.machines.networks.advanced.AdvancedGreedyBlock;
@@ -65,7 +66,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-@SuppressWarnings("deprecation")
+@SuppressWarnings({"deprecation", "IfCanBeSwitch"})
 @Getter
 @NullMarked
 public class NetworkRoot extends NetworkNode {
@@ -978,6 +979,94 @@ public class NetworkRoot extends NetworkNode {
         } else {
             return (int) totalAmount;
         }
+    }
+
+    /**
+     * 估算"此刻"向网络存入 {@code itemStack} 还能被吸收的最大数量（保守上界）
+     * 忽略 voidExcess
+     */
+    public long getLeftCapacityFor(@Nullable ItemStack itemStack) {
+        if (itemStack == null || itemStack.getType() == Material.AIR || StackUtils.isBlacklisted(itemStack)) {
+            return 0L;
+        }
+
+        long greedyRoom = 0L;
+        for (BlockMenu blockMenu : getAdvancedGreedyBlockMenus()) {
+            final ItemStack template = blockMenu.getItemInSlot(AdvancedGreedyBlock.TEMPLATE_SLOT);
+            if (template != null && !template.getType().isAir() && StackUtils.itemsMatch(template, itemStack)) {
+                greedyRoom = slotRoomOf(blockMenu, ADVANCED_GREEDY_BLOCK_AVAILABLE_SLOTS, itemStack);
+                break;
+            }
+        }
+        if (greedyRoom == 0L) {
+            for (BlockMenu blockMenu : getGreedyBlockMenus()) {
+                final ItemStack template = blockMenu.getItemInSlot(NetworkGreedyBlock.TEMPLATE_SLOT);
+                if (template != null && !template.getType().isAir() && StackUtils.itemsMatch(template, itemStack)) {
+                    greedyRoom = slotRoomOf(blockMenu, new int[]{GREEDY_BLOCK_AVAILABLE_SLOT}, itemStack);
+                    break;
+                }
+            }
+        }
+        if (greedyRoom == 0) {
+            return greedyRoom;
+        }
+
+        long total = 0L;
+
+        for (BarrelIdentity barrel : getInputAbleBarrels()) {
+            if (barrel.getItemStack() == null || !StackUtils.itemsMatch(barrel, itemStack)) {
+                continue;
+            }
+            if (barrel instanceof NetworkStorage) {
+                final QuantumCache cache = NetworkQuantumStorage.getCaches().get(barrel.getLocation());
+                if (cache == null) continue;
+                total += Math.max(0L, cache.getLimitLong() - cache.getAmountLong());
+            } else if (Networks.getSupportedPluginManager().isInfinityExpansion() && barrel instanceof InfinityBarrel) {
+                total += Math.max(0L, barrel.getLimit() - barrel.getAmount());
+            } else if (Networks.getSupportedPluginManager().isTsingshanTechnology() && barrel instanceof TsingshanBarrel) {
+                total += Math.max(0L, barrel.getLimit() - barrel.getAmount());
+            } else if (Networks.getSupportedPluginManager().isFluffyMachines() && barrel instanceof FluffyBarrel) {
+                // 蓬松桶：深层库存靠自身 tick 从输入槽搬运，瞬间可输入的只有输入槽空位
+                final BlockMenu menu = StorageCacheUtils.getMenu(barrel.getLocation());
+                if (menu == null) continue;
+                total += slotRoomOf(menu, barrel.getInputSlot(), itemStack);
+            }
+        }
+
+        for (StorageUnitData unit : getMapInputAbleCargoStorageUnits().values()) {
+            final long eachMax = unit.getSizeType().getEachMaxSize();
+            for (ItemContainer container : unit.getStoredItems()) {
+                if (container.isSimilar(itemStack)) {
+                    total += Math.max(0L, eachMax - container.getAmount());
+                }
+            }
+        }
+
+        if (!getInputAbleCellDriveMenus().isEmpty()) {
+            final DriveStorage.CapacityProbe probe = CellDrive.getStorage().probeReceive(
+                driveCache, getInputAbleCellDriveMenus(), new ItemKey(itemStack), Long.MAX_VALUE);
+            total += probe.capacity();
+        }
+
+        for (BlockMenu blockMenu : getCellMenus()) {
+            if (isFakeCell(blockMenu)) continue;
+            total += slotRoomOf(blockMenu, CELL_AVAILABLE_SLOTS, itemStack);
+        }
+
+        return total;
+    }
+
+    private static long slotRoomOf(BlockMenu menu, int[] slots, ItemStack template) {
+        long room = 0L;
+        for (int slot : slots) {
+            final ItemStack slotItem = menu.getItemInSlot(slot);
+            if (slotItem == null || slotItem.getType() == Material.AIR) {
+                room += template.getMaxStackSize();
+            } else if (StackUtils.itemsMatch(slotItem, template)) {
+                room += Math.max(0, slotItem.getMaxStackSize() - slotItem.getAmount());
+            }
+        }
+        return room;
     }
 
     public HashMap<ItemStack, Long> getAmount(Set<ItemStack> itemStacks) {
