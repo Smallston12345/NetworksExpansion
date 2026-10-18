@@ -5,11 +5,11 @@ plugins {
 }
 
 group = "com.ytdd9527.networksexpansion"
-version = "2.1.127"
+version = "2.1.128"
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(25))
     }
 }
 
@@ -137,7 +137,7 @@ tasks {
             "-Dnet.kyori.adventure.text.warn_when_legacy_formatting_detected=false"
         )
         maxHeapSize = "4G"
-        minecraftVersion("1.21.11")
+        minecraftVersion("26.2")
     }
 }
 

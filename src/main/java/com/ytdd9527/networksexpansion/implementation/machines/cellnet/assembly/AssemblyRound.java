@@ -337,34 +337,24 @@ final class AssemblyRound {
 
     private static long probeCapacity(
             @NotNull NetworkRoot root,
-            @NotNull Location accessor,
             @NotNull Recipe recipe,
             long amount) {
         if (amount <= 0) {
             return 0L;
         }
+        // 元件驱动容量探针（非破坏性），驱动足够装下（或有虚空格兜底）时直接短路，
+        // 省去 getLeftCapacityFor 的全存储遍历
         DriveStorage.CapacityProbe capacityProbe = CellDrive.getStorage().probeReceive(
             root.getDriveCache(), root.getInputAbleCellDriveMenus(), recipe.outputKey(), amount);
         if (capacityProbe.capacity() >= amount || capacityProbe.voidAccepts()) {
             return amount;
         }
-        ItemStack template = recipe.output();
-        ItemStack probe = template.clone();
-        probe.setAmount((int) Math.min(amount, Integer.MAX_VALUE));
-        return withVoidSuspended(() -> {
-            root.addItemStack(accessor, probe);
-            long absorbed = amount - Math.max(0L, probe.getAmount());
-            if (absorbed <= 0) {
-                return 0L;
-            }
-            ItemStack got = root.getItemStack(accessor,
-                new ItemRequest(template.clone(), (int) Math.min(absorbed, Integer.MAX_VALUE)));
-            long gotAmount = got == null || got.getType().isAir() ? 0L : got.getAmount();
-            if (gotAmount < absorbed) {
-                Debug.debug("装配驱动器容量探针取回不足");
-            }
-            return gotAmount;
-        });
+        // 网络剩余容量估算（非破坏性，替代旧的"真推真取"探针）。
+        // getLeftCapacityFor 内部已包含元件驱动部分，此处不再叠加 capacityProbe，
+        // 否则驱动容量会被重复计算导致高估。
+        // getLeftCapacityFor 契约为保守低估：探针结果偏小只会让合成批量偏小，
+        // 不会出现旧实现"推入网络取不回"的凭空产出泄漏。
+        return Math.min(amount, root.getLeftCapacityFor(recipe.output()));
     }
 
     private static long fetchMaterials(
@@ -478,7 +468,7 @@ final class AssemblyRound {
             long now) {
         long maxWant = Integer.MAX_VALUE / Math.max(1L, units);
         long probeUnits = Math.min(want, maxWant) * units;
-        long absorbed = probeCapacity(root, location, recipe, probeUnits);
+        long absorbed = probeCapacity(root, recipe, probeUnits);
         if (absorbed <= 0) {
             state.blocked[index] = true;
             state.nextProbeAt[index] = now + PROBE_RETRY_MS;
