@@ -363,20 +363,51 @@ public class CellConverter extends CellBrowserBase {
             return;
         }
 
-        int outputSlot = findEmptyOutputSlot(menu);
-        if (outputSlot < 0) {
-            player.sendMessage(Lang.getString(CellnetText.CONVERTER_OUTPUT_FULL));
-            return;
-        }
-
-        NetworkQuantumStorage qs = resolveTargetStorage(ctx.entry().amount, ctx.per());
-        if (qs == null) {
+        NetworkQuantumStorage required = resolveTargetStorage(ctx.entry().amount, ctx.per());
+        if (required == null) {
             player.sendMessage(Lang.getString(CellnetText.CONVERTER_NO_MATCHING_STORAGE));
             return;
         }
-        ItemStack qsItem = CellQuantumConverter.buildQuantumStorage(ctx.entry().sample, ctx.entry().amount, qs);
 
-        menu.replaceExistingItem(outputSlot, qsItem);
+        // 转出为量子储存需要消耗一个玩家放入的空量子储存壳，且壳的等级必须与
+        // 元件需要的量子储存等级一致；不一致的壳不能用于存入
+        int shellSlot = -1;
+        boolean hasMismatchedShell = false;
+        for (int slot : OUTPUT_SLOTS) {
+            ItemStack onSlot = menu.getItemInSlot(slot);
+            if (onSlot == null || onSlot.getType().isAir()) {
+                continue;
+            }
+            NetworkQuantumStorage shell = asQuantumStorage(onSlot);
+            if (shell == null) {
+                continue;
+            }
+            QuantumCache shellData = Keys.getQuantumCache(onSlot.getItemMeta());
+            boolean empty = shellData == null
+                || shellData.getItemStack() == null
+                || shellData.getAmountLong() <= 0;
+            if (!empty) {
+                continue;
+            }
+            if (shell != required) {
+                hasMismatchedShell = true;
+                continue;
+            }
+            shellSlot = slot;
+            break;
+        }
+
+        if (shellSlot < 0) {
+            player.sendMessage(Lang.getString(hasMismatchedShell
+                ? CellnetText.CONVERTER_TIER_MISMATCH
+                : CellnetText.CONVERTER_NO_QUANTUM_STORAGE));
+            return;
+        }
+
+        ItemStack qsItem = CellQuantumConverter.buildQuantumStorage(ctx.entry().sample, ctx.entry().amount, required);
+
+        // 消耗空壳：原槽位被灌成带内容的量子储存
+        menu.replaceExistingItem(shellSlot, qsItem);
         ctx.cache().takeItem(ctx.entry().sample, ctx.entry().amount);
         if (!CellPersistence.isUnlimited(ctx.per())) {
             long current = StorageCell.getCurrentPerTypeLimit(ctx.cellItem());
@@ -420,6 +451,12 @@ public class CellConverter extends CellBrowserBase {
         }
         NetworkQuantumStorage storage = asQuantumStorage(qsItem);
         if (storage == null) {
+            player.sendMessage(Lang.getString(CellnetText.CONVERTER_TIER_MISMATCH));
+            return null;
+        }
+        // 量子储存档位必须与元件档位需要的量子储存一致，不一致拒绝转入
+        // （无限档元件没有固定档位要求，不在此拦截）
+        if (!CellPersistence.isUnlimited(per) && storage != CellTier.upgradeMaterialOf(per)) {
             player.sendMessage(Lang.getString(CellnetText.CONVERTER_TIER_MISMATCH));
             return null;
         }
@@ -487,16 +524,6 @@ public class CellConverter extends CellBrowserBase {
         refresh(menu);
 
         CellPersistence.saveAsync();
-    }
-
-    private static int findEmptyOutputSlot(@NotNull BlockMenu menu) {
-        for (int slot : OUTPUT_SLOTS) {
-            ItemStack onSlot = menu.getItemInSlot(slot);
-            if (onSlot == null || onSlot.getType().isAir()) {
-                return slot;
-            }
-        }
-        return -1;
     }
 
     private static List<Integer> listQuantumSlots(@NotNull BlockMenu menu) {
