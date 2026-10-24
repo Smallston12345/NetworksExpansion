@@ -81,6 +81,7 @@ tasks.withType<JavaExec>().configureEach {
 tasks {
     compileJava {
         options.compilerArgs.add("-Xlint:-removal")
+        options.release = 21
     }
 
     processResources {
