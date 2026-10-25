@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.ytdd9527.networksexpansion"
-version = "2.1.128"
+version = "2.1.129"
 
 java {
     toolchain {
@@ -81,6 +81,7 @@ tasks.withType<JavaExec>().configureEach {
 tasks {
     compileJava {
         options.compilerArgs.add("-Xlint:-removal")
+        options.release = 21
     }
 
     processResources {

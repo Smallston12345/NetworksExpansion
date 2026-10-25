@@ -990,24 +990,27 @@ public class NetworkRoot extends NetworkNode {
             return 0L;
         }
 
+        boolean greedyMatched = false;
         long greedyRoom = 0L;
         for (BlockMenu blockMenu : getAdvancedGreedyBlockMenus()) {
             final ItemStack template = blockMenu.getItemInSlot(AdvancedGreedyBlock.TEMPLATE_SLOT);
             if (template != null && !template.getType().isAir() && StackUtils.itemsMatch(template, itemStack)) {
                 greedyRoom = slotRoomOf(blockMenu, ADVANCED_GREEDY_BLOCK_AVAILABLE_SLOTS, itemStack);
+                greedyMatched = true;
                 break;
             }
         }
-        if (greedyRoom == 0L) {
+        if (!greedyMatched) {
             for (BlockMenu blockMenu : getGreedyBlockMenus()) {
                 final ItemStack template = blockMenu.getItemInSlot(NetworkGreedyBlock.TEMPLATE_SLOT);
                 if (template != null && !template.getType().isAir() && StackUtils.itemsMatch(template, itemStack)) {
                     greedyRoom = slotRoomOf(blockMenu, new int[]{GREEDY_BLOCK_AVAILABLE_SLOT}, itemStack);
+                    greedyMatched = true;
                     break;
                 }
             }
         }
-        if (greedyRoom == 0) {
+        if (greedyMatched) {
             return greedyRoom;
         }
 
